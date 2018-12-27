@@ -1,0 +1,138 @@
+#Importar los datos obtenidos de una submuestra de la encuesta Desiguales del PNUD
+
+opdes <- read.csv("http://oddschile.net//opdes.csv")
+
+# Abrir la libreria Tidyverse para manipular los datos
+
+library(tidyverse)
+
+
+# Explotar la estructura de los datos
+glimpse(opdes)
+
+
+
+# Importat ggplot2 para visualizar histograma con la edad de las personas
+library(ggplot2)
+ggplot(opdes, aes(x = edad)) +
+    geom_histogram(binwidth = 10)
+
+
+qplot(opdes$edad,
+      geom="histogram",
+      binwidth=10,  
+      main="Histograma para la Edad", 
+      xlab="Edad", 
+	ylab="Frecuencia",
+      fill=I("blue"), 
+      col=I("red"))
+
+# Ordenar los datos con tidyverse quitando el valor id y la edad
+
+tidy_opdes <- opdes %>%
+    select(-id) %>%
+    gather(key, value, -edad)
+
+# Explorar los resultados de los datos ordenados con Tidyverse
+glimpse(tidy_opdes)
+
+# Resultados generales de todas las preguntas de acuerdo a la edad 
+tidy_opdes %>%
+    group_by(edad) %>%
+    summarize(value = mean(value, na.rm = TRUE))
+
+# Numero total de personas que manifestan acuerdo o desacuerdo 
+tidy_opdes %>%
+    count(value)
+
+# Visualizar opiniones de acuerdo a la edad
+
+
+tidy_opdes %>%
+    filter(key %in% paste0("V", 143:157)) %>%
+    group_by(key, value) %>%
+    summarize(edad = mean(edad, na.rm = TRUE)) %>%
+    ggplot(aes(value, edad, color = key)) +
+    geom_line(show.legend = FALSE) +
+    facet_wrap(~key, nrow = 3)+
+    xlab("Valores")+
+    ylab("Edad")+
+    ggtitle("Opiniones sobre desigualdad de acuerdo a la edad")
+    	  	
+
+
+# Remover la columna id
+opdes_select <- opdes %>% 
+    select(-id)
+
+# Crear un modelo de regresion lineal simple
+simple_lm <- lm(edad ~ ., 
+                data = opdes_select)
+
+# Explorar el resumen del modelo
+summary(simple_lm)
+
+# Importar la libreria caret
+library(caret)
+
+# Separar los datos en un set de entrenamiento y dos sets de validación y prueba
+set.seed(1234)
+in_train <- createDataPartition(opdes_select$edad, 
+                                p = 0.6, list = FALSE)
+training <- opdes_select[in_train, ]
+validation_test <- opdes_select[-in_train, ]
+
+set.seed(1234)
+in_test <- createDataPartition(validation_test$edad, 
+                               p = 0.5, list = FALSE)
+testing <- validation_test[in_test, ]
+validation <- validation_test[-in_test, ]
+
+# Ajustar un modelo CART 
+opdes_cart <- train(edad ~ ., method = "rpart", data = training)
+
+# Explorar el modelo CART
+opdes_cart
+
+# Ajustar un modelo XGB
+
+opdes_xgb <- train(edad ~ ., method = "xgbLinear", data = training)
+
+# Ajustar un modelo GBM
+
+opdes_gbm <- train(edad ~ ., method = "gbm", data = training)
+
+
+# Elaborar predicciones a partir de los tres modelos
+
+modeling_results <- validation %>%
+    mutate(CART = predict(opdes_cart, validation),
+           XGB = predict(opdes_xgb, validation),
+           GBM = predict(opdes_gbm, validation))
+
+# Visualizar las predicciones
+modeling_results %>% 
+    select(CART, XGB, GBM)
+
+
+# Importar la libreria yardstick
+library(yardstick)
+
+# Comparar el rendimiento de los modelos
+metrics(modeling_results, truth = edad, estimate = CART)
+metrics(modeling_results, truth = edad, estimate = XGB)
+metrics(modeling_results, truth = edad, estimate = GBM)
+
+# Calcular el RMSE
+testing %>%
+    mutate(prediction = predict(opdes_xgb, testing)) %>%
+    rmse(truth = edad, estimate = prediction)
+
+
+newopdes <- read.csv("http://oddschile.net//newopdes.csv")
+
+predict(opdes_xgb, newopdes)
+
+
+
+
